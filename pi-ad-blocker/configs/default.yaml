@@ -1,0 +1,51 @@
+# Pi Ad Blocker Configuration
+# See: docs/configuration.md for full documentation
+
+detector:
+  model_path: "data/models/yolo11n_ad.onnx"
+  model_type: "yolo11"
+  confidence_threshold: 0.35
+  iou_threshold: 0.45
+  input_width: 640
+  input_height: 640
+  device: "cpu"
+  providers: ["CPUExecutionProvider"]
+  use_quantized: true
+  accelerator: "none"
+  ad_class_ids: [79, 83, 84]
+
+tracker:
+  type: "bytetrack"
+  track_high_thresh: 0.35
+  track_low_thresh: 0.10
+  new_track_thresh: 0.50
+  track_buffer: 30
+  match_thresh: 0.80
+
+masking:
+  mode: "black"
+  mask_color: [0, 0, 0]
+  blur_kernel_size: 31
+  pixelation_blocks: 16
+  mask_opacity: 1.0
+  padding_pixels: 4
+
+video_io:
+  input_source: "0"
+  output_path: null
+  output_fourcc: "mp4v"
+  resize_width: 640
+  resize_height: 480
+  enable_preview: true
+  preview_window_name: "Pi Ad Blocker"
+  camera_backend: "opencv"
+
+evaluation:
+  ground_truth_path: ""
+  iou_threshold: 0.50
+  confidence_thresholds: [0.1, 0.25, 0.35, 0.5]
+  save_plots: true
+  output_dir: "data/outputs/eval"
+
+log_level: "INFO"
+seed: 42

@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pi-ad-blocker"
+version = "1.0.0"
+description = "Raspberry Pi Advertisement Blocking System - Detect and mask visual advertisements in video streams"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Pi Ad Blocker Team"}
+]
+keywords = ["ad-blocking", "raspberry-pi", "computer-vision", "yolo", "object-detection"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    "onnxruntime>=1.16.0",
+    "pyyaml>=6.0",
+    "loguru>=0.7.0",
+    "pydantic>=2.0.0",
+    "ultralytics>=8.0.0",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-benchmark>=4.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+    "pre-commit>=3.0",
+]
+tpu = ["pycoral>=2.0", "tflite-runtime>=2.14"]
+hailo = ["hailo-rt>=4.17"]
+gpu = ["onnxruntime-gpu>=1.16.0"]
+webcam = ["picamera2>=0.3.0"]
+docs = ["mkdocs>=1.5", "mkdocstrings>=0.24", "mkdocs-material>=9.0"]
+
+[project.scripts]
+pi-ad-blocker = "pi_ad_blocker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pi_ad_blocker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --cov=pi_ad_blocker"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

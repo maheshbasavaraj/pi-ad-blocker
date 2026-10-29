@@ -1,0 +1,112 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Model files (large)
+data/models/*.pt
+data/models/*.onnx
+!data/models/.gitkeep
+
+# Output data
+data/outputs/
+*.mp4
+*.avi
+*.mov
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Benchmark results
+benchmark_results/
+eval_results/
+
+# Config (user-specific)
+configs/user_*.yaml
+
+# Coverage
+coverage/
+.coverage
+coverage.xml
+htmlcov/
+
+# MyPy
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Pytest
+.pytest_cache//f/AI Projects/pi-ad-blocker
+data/outputs/
+# --- secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*
+*credential*.json
+*serviceAccount*.json
+id_rsa*
+id_ed25519*
+*.sqlite
+*.db
+# --- os / editor ---
+desktop.ini
+*.tmp
+~$*
+# --- python ---
+.pytest_cache/
+.tox/
+# --- regenerable bulk (excluded on purpose) ---
+*.zip
+*.tar
+*.gz
+*.exe
+*.msi
+*.pkg
+*.dll
+*.so
+*.dylib
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.gguf
+*.bin
+*.h5
+*.pb
+*.mkv
+*.mp3
+*.wav
+*.flac
+*.psd
