@@ -62,6 +62,76 @@ print(f'Processed {stats[\"frames_processed\"]} frames at {stats[\"avg_fps\"]:.1
 pi-ad-blocker run --camera 0 --output camera_output.mp4
 ```
 
+### Real-time / AR mode (glasses, 30–60 fps display loop)
+
+Detection runs on a background thread; every render frame propagates the last
+polygons with optical flow, so the display loop is decoupled from detection
+latency. Measured on laptop CPU (150 frames, 854×480): **35–39 fps render** with
+a fine-tuned `yolo11n-seg` at **15.2 fps (640)** / **23.5 fps (480)** detection,
+mask IoU p10 **0.78–0.80** (was 0.07 with the zero-shot YOLOE teacher). Full
+ledger: `docs/realtime_mask_quality.md`.
+
+CLI:
+
+```bash
+# paced to source fps, no preview window, first 300 frames
+pi-ad-blocker run --video clip.mp4 --realtime --no-preview --max-frames 300
+
+# live camera, AR compositor output (mask only, transparent elsewhere)
+pi-ad-blocker run --camera 0 --realtime --display-mode black
+```
+
+```python
+from pi_ad_blocker.config import AppConfig, DetectorConfig, MaskingConfig, RealtimeConfig
+from pi_ad_blocker.realtime import RealtimeAdBlocker
+import cv2
+
+cfg = AppConfig(
+    detector=DetectorConfig(
+        model_path="runs/seg/ads_nano_seg/weights/best.pt",
+        model_type="yolo_seg",          # ultralytics .pt seg model
+        confidence_threshold=0.25,
+        input_width=640,
+        input_height=640,
+    ),
+    masking=MaskingConfig(mode="black", use_polygon=True, edge_feather_px=2,
+                          output_mode="overlay"),   # "overlay" = AR compositor frame
+    realtime=RealtimeConfig(async_detection=True, max_propagation_frames=15,
+                            miss_tolerance=2),
+)
+blocker = RealtimeAdBlocker(cfg)
+blocker.start()                          # also warms the model
+cap = cv2.VideoCapture(0)
+i = 0
+while True:
+    ok, frame = cap.read()
+    if not ok:
+        break
+    out = blocker.process_frame(frame, i)
+    i += 1
+blocker.stop()
+```
+
+Render a masked file and measure mask quality:
+
+```bash
+python scripts/render_masked.py --video in.mp4 --frames 150 \
+    --model runs/seg/ads_nano_seg/weights/best.pt --model-type yolo_seg \
+    --imgsz 640 --conf 0.25 --out data/outputs/masked.mp4
+python scripts/mask_quality.py --source in.mp4 --masked data/outputs/masked.mp4
+```
+
+### Train a domain-specific ad segmenter (teacher → student)
+
+Open-vocabulary YOLOE labels the footage, a nano model learns it and ships:
+
+```bash
+python scripts/autolabel.py --video data/outputs/test_ad_video.mp4 \
+    --out data/dataset_ads --every 10 --imgsz 640 --conf 0.10
+python scripts/train_ads.py --data data/dataset_ads/data.yaml \
+    --epochs 12 --imgsz 512 --batch 8
+```
+
 ## Architecture
 
 ```

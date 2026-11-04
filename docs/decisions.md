@@ -211,6 +211,62 @@ All architectural and implementation decisions with rationale.
 
 ---
 
+### AD-10: Real-time Render — Async Detector Thread + Optical-Flow Propagation
+
+**Status:** Adopted
+**Date:** 2026-11-03
+
+**Decision:** Run detection on a background thread that consumes only the newest
+frame (never a queue), and propagate the last detected polygons on every render
+frame with Lucas-Kanade flow re-anchored to the keyframe.
+
+**Rationale:** A 340–450 ms detector cannot gate a 30 fps display loop. Measured
+29.97 fps paced render / 60.7 fps uncapped with the detector at 2.2–2.9 fps.
+Re-anchoring every frame (not chaining) bounds drift; keyframes older than
+`max_propagation_frames` are dropped.
+
+### AD-11: Cross-Class Dedupe Before Tracking
+
+**Status:** Adopted
+**Date:** 2026-11-03
+
+**Decision:** Run `agnostic_nms=True` in the detector and `dedupe_detections()`
+(IoU 0.6, highest confidence wins) before the tracker.
+
+**Rationale:** Open-vocab prompts fire twice on one sign (`billboard` +
+`advertisement poster`), producing two competing track IDs per sign. ID churn
+was a direct cause of mask swimming and hysteresis resetting.
+
+### AD-12: Mask Hysteresis + Miss Tolerance
+
+**Status:** Adopted
+**Date:** 2026-11-03
+
+**Decision:** Hold the last polygon for `hold_frames` (12) with a linear alpha
+fade instead of dropping it on the first empty detection, and let the async
+detector keep the previous keyframe through `miss_tolerance` (2) consecutive
+empty results.
+
+**Rationale:** Detectors miss a sign for individual keyframes. Instant eviction
+made the mask blink. Measured effect: mean consecutive IoU 0.662 → 0.804.
+
+### AD-13: Teacher/Student Distillation for Runtime Detection
+
+**Status:** Adopted
+**Date:** 2026-11-03
+
+**Decision:** Ship a fine-tuned nano segmentation model (YOLO11n-seg, ONNX INT8);
+use YOLOE open-vocabulary prompts only to auto-label domain frames.
+
+**Rationale:** Four masker-side stability mechanisms moved mean IoU to 0.804 but
+left p10 at 0.08 — the gate is p10 ≥ 0.85. The binding constraint is detector
+rate: at 2.3 fps each detection is ~13 render frames apart and flow drift snaps
+back on every keyframe. YOLOE at 480 doubles throughput and detects nothing, so
+it cannot simply be shrunk. A nano model trained on auto-labels makes every frame
+a keyframe and removes propagation from the critical path.
+
+---
+
 ## Accelerator Benchmarks (RPi 5, 640×480)
 
 | Accelerator | Model | FPS | Latency | Power | Cost |
@@ -227,3 +283,28 @@ All architectural and implementation decisions with rationale.
 - **ONNX Runtime**: MIT
 - **Torch**: BSD
 - **Mapillary Vistas**: Custom license (research use only)
+---
+
+### AD-11: Teacher/Student Distillation for Ad Segmentation
+
+**Status:** Adopted
+**Date:** 2026-11-04
+
+**Decision:** Never ship the open-vocabulary teacher. Use `yoloe-11s-seg` offline
+to label domain footage, then fine-tune `yolo11n-seg` on those labels.
+
+**Rationale:** The teacher runs at 2.2 fps on CPU and its masks flicker (IoU p10
+0.073) because 13 frames coast between keyframes. A 5.96 MB nano student reaches
+15.2 fps @640 / 23.5 fps @480 in-pipeline and lifts IoU p10 to 0.776 / 0.800 —
+mask hysteresis and flow stop being load-bearing.
+
+**Consequences:**
+- Labelled data is free: `scripts/autolabel.py` kept 891 of 977 sampled frames.
+- Each new domain (malls, transit, stadiums) is a 20-minute relabel + retrain,
+  not a model-vocabulary problem.
+- ONNX export path had a latent bug: prototype masks were cropped with
+  original-frame coordinates inside letterboxed space, so every mask decoded
+  empty. Fixed in `ONNXSegDetector.postprocess`, regression-tested by
+  `test_onnx_seg_masks_land_inside_their_boxes`.
+- `quantize_dynamic` INT8 is slower than FP32 for this net (225 ms vs 33 ms);
+  static QDQ with calibration is required before any INT8 claim.

@@ -148,6 +148,11 @@ def create_masker(
     custom_fn: Optional[Callable] = None,
 ) -> BaseMasker:
     """Factory: create masker by mode."""
+    if config.use_polygon and config.mode in ("black", "blur", "pixelate"):
+        from .polygon_masker import PolygonMasker
+
+        return PolygonMasker(config)
+
     if config.mode == "black":
         return BlackMasker(config)
     elif config.mode == "blur":

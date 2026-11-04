@@ -27,7 +27,10 @@ class DetectorConfig(BaseModel):
     """Detector settings."""
 
     model_path: str = str(DEFAULT_MODEL_DIR / "yolo11n_ad.onnx")
-    model_type: Literal["yolov8", "yolo11", "mobilenet_ssd", "rtdetr"] = "yolo11"
+    model_type: Literal[
+        "yolov8", "yolo11", "mobilenet_ssd", "rtdetr",
+        "yoloe", "yolo_seg", "ultralytics", "onnx_seg",
+    ] = "yolo11"
     confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     iou_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     input_width: int = 640
@@ -41,6 +44,22 @@ class DetectorConfig(BaseModel):
     # Ad-related COCO class IDs (billboard, signboard, etc.)
     ad_class_ids: list[int] = Field(default_factory=lambda: [62])
     custom_ad_classes: Optional[list[str]] = None
+    # Trained / prompt-driven models already output ads only — skip COCO filtering
+    filter_to_ad_classes: bool = True
+
+    # Open-vocabulary text prompts (YOLOE). Empty = plain trained model.
+    prompt_classes: list[str] = Field(
+        default_factory=lambda: [
+            "billboard",
+            "advertisement poster",
+            "digital advertising screen",
+            "storefront sign",
+            "banner",
+            "flyer",
+        ]
+    )
+    # Run detector every N frames in the realtime pipeline (1 = every frame)
+    frame_skip: int = 1
 
     # Accelerator
     accelerator: Literal["none", "coral", "hailo"] = "none"
@@ -88,6 +107,17 @@ class MaskingConfig(BaseModel):
     blend_alpha: float = Field(default=0.95, ge=0.0, le=1.0)
     temporal_smoothing: bool = True
 
+    # Polygon / segmentation masking
+    use_polygon: bool = True
+    polygon_points: int = 40
+    polygon_ema: float = Field(default=0.55, ge=0.0, le=1.0)
+    # Hysteresis: keep an outline this many frames after its detection vanishes
+    # (fades out), so a dropped keyframe does not blink the mask off.
+    hold_frames: int = 12
+    fade_out: bool = True
+    edge_feather_px: int = 3
+    output_mode: Literal["masked", "overlay"] = "masked"
+
 
 class VideoIOConfig(BaseModel):
     """Video input / output settings."""
@@ -101,6 +131,22 @@ class VideoIOConfig(BaseModel):
     enable_preview: bool = True
     preview_window_name: str = "Pi Ad Blocker"
     camera_backend: Literal["opencv", "picamera2"] = "opencv"
+
+
+class RealtimeConfig(BaseModel):
+    """Real-time (glasses / live camera) execution settings."""
+
+    enabled: bool = False
+    async_detection: bool = True
+    detect_interval: int = 8  # frames between detections in sync mode
+    max_propagation_frames: int = 15  # how long masks may coast on optical flow
+    # Tolerate this many consecutive empty keyframes before dropping known
+    # outlines. Detectors miss an ad for a frame or two constantly; clearing on
+    # the first miss is what made masks blink.
+    miss_tolerance: int = 2
+    flow_points: int = 12
+    target_fps: float = 0.0  # 0 = uncapped
+    detect_width: int = 640  # downscale width fed to the detector (0 = native)
 
 
 class EvaluationConfig(BaseModel):
@@ -119,6 +165,7 @@ class AppConfig(BaseModel):
     detector: DetectorConfig = Field(default_factory=DetectorConfig)
     tracker: TrackerConfig = Field(default_factory=TrackerConfig)
     masking: MaskingConfig = Field(default_factory=MaskingConfig)
+    realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
     video_io: VideoIOConfig = Field(default_factory=VideoIOConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
@@ -212,6 +259,15 @@ evaluation:
   confidence_thresholds: [0.1, 0.25, 0.35, 0.5]
   save_plots: true
   output_dir: "data/outputs/eval"
+
+realtime:
+  enabled: false
+  async_detection: true
+  detect_interval: 8
+  max_propagation_frames: 15
+  flow_points: 12
+  target_fps: 0.0
+  detect_width: 640
 
 log_level: "INFO"
 seed: 42

@@ -153,6 +153,7 @@ class AdBlockPipeline:
                         confidence=track.confidence,
                         bbox=track.bbox,
                         track_id=track.track_id,
+                        polygon=track.polygon,
                     )
                 )
         else:

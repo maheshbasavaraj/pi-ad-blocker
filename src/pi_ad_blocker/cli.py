@@ -63,6 +63,32 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     config = _load_or_default(args.config)
 
+    if args.display_mode:
+        config.masking.mode = args.display_mode
+
+    if args.realtime:
+        from pi_ad_blocker.realtime import process_video_realtime
+
+        source = args.video if args.video else str(args.camera)
+        output_path = args.output or f"output_rt_{Path(source).stem}.mp4"
+        stats = process_video_realtime(
+            config,
+            source,
+            output_path,
+            max_frames=args.max_frames,
+            show_preview_window=not args.no_preview,
+            pace_to_source_fps=not args.unpaced,
+        )
+        print(f"\n{'='*50}")
+        print("Real-time processing complete:")
+        print(f"  Frames rendered:  {stats['frames']}")
+        print(f"  Render FPS:       {stats['render_fps']}")
+        print(f"  Detector FPS:     {stats['detector_fps']}")
+        print(f"  Detector latency: {stats['detector_ms_avg']} ms avg / {stats['detector_ms_p95']} ms p95")
+        print(f"  Frame latency:    {stats['frame_ms_avg']} ms avg / {stats['frame_ms_p95']} ms p95")
+        print(f"{'='*50}")
+        return
+
     if args.video:
         output_path = args.output or f"output_{Path(args.video).stem}.mp4"
         stats = process_video(config, args.video, output_path, show_preview=True)
@@ -215,6 +241,22 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--camera", type=int, default=None, help="Camera device index")
     run_p.add_argument("--output", help="Output video path (optional)")
     run_p.add_argument("--config", help="Config file path (optional)")
+    run_p.add_argument(
+        "--realtime",
+        action="store_true",
+        help="Use the low-latency AR pipeline (background detector + optical-flow masks)",
+    )
+    run_p.add_argument("--max-frames", type=int, default=0, help="Stop after N frames (0 = all)")
+    run_p.add_argument("--no-preview", action="store_true", help="Do not open a preview window")
+    run_p.add_argument(
+        "--unpaced", action="store_true", help="Render as fast as possible instead of matching source FPS"
+    )
+    run_p.add_argument(
+        "--display-mode",
+        choices=["black", "blur", "pixelate", "replacement"],
+        default=None,
+        help="Override masking mode",
+    )
 
     # train
     train_p = sub.add_parser("train", help="Train a YOLO model")

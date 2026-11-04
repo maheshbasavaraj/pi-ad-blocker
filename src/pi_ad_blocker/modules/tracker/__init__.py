@@ -35,6 +35,7 @@ class Track:
     hit_count: int = 1
     missed_count: int = 0
     is_confirmed: bool = False
+    polygon: Optional[np.ndarray] = None  # latest segmentation outline, if any
 
     @property
     def center(self) -> tuple[float, float]:
@@ -48,6 +49,7 @@ class Track:
         """Update track with a new detection."""
         self.bbox = detection.bbox
         self.confidence = detection.confidence
+        self.polygon = detection.polygon
         self.hit_count += 1
         self.missed_count = 0
         self.age += 1
@@ -138,6 +140,7 @@ class ByteTrack(BaseTracker):
                 class_name=det.class_name,
                 bbox=det.bbox,
                 confidence=det.confidence,
+                polygon=det.polygon,
             )
             track.is_confirmed = True
             self._tracks[self._next_id] = track

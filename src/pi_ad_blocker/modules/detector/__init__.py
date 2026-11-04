@@ -25,13 +25,20 @@ from pi_ad_blocker.config import DetectorConfig
 
 @dataclass
 class Detection:
-    """A single detection result."""
+    """A single detection result.
+
+    ``polygon`` carries the pixel-accurate instance outline when the detector
+    is segmentation-capable (YOLO11-seg / YOLOE). Maskers prefer the polygon
+    over the bounding box when it is present.
+    """
 
     class_id: int
     class_name: str
     confidence: float
     bbox: tuple[int, int, int, int]  # x1, y1, x2, y2 (pixel coordinates)
     track_id: Optional[int] = None
+    polygon: Optional[np.ndarray] = None  # (N, 2) int32 outline, frame coords
+    source: str = "yolo"
 
     @property
     def x1(self) -> int:
@@ -150,9 +157,10 @@ class BaseDetector(ABC):
         elapsed = time.perf_counter() - t0
         self._inference_times.append(elapsed)
 
-        # Filter to ad-relevant classes only
-        ad_ids = set(self.config.ad_class_ids)
-        detections = [d for d in detections if d.class_id in ad_ids]
+        # Filter to ad-relevant classes only (disabled for prompt/trained seg models)
+        if self.config.filter_to_ad_classes:
+            ad_ids = set(self.config.ad_class_ids)
+            detections = [d for d in detections if d.class_id in ad_ids]
 
         # Apply confidence threshold
         detections = [d for d in detections if d.confidence >= self.config.confidence_threshold]
@@ -327,6 +335,37 @@ class YOLOONNXDetector(BaseDetector):
 # Factory
 # ---------------------------------------------------------------------------
 
+def dedupe_detections(
+    detections: list[Detection], iou_threshold: float = 0.6
+) -> list[Detection]:
+    """Drop duplicate boxes that different classes claim over the same region.
+
+    Open-vocabulary prompts overlap by nature ("billboard" vs "advertisement
+    poster"), and a per-class NMS keeps both. Two masks over one sign double
+    the area and make the outline jitter between keyframes.
+    """
+
+    def iou(a, b) -> float:
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        iw, ih = max(ix2 - ix1, 0), max(iy2 - iy1, 0)
+        inter = iw * ih
+        if inter <= 0:
+            return 0.0
+        area_a = max((ax2 - ax1) * (ay2 - ay1), 1)
+        area_b = max((bx2 - bx1) * (by2 - by1), 1)
+        return inter / float(area_a + area_b - inter)
+
+    kept: list[Detection] = []
+    for det in sorted(detections, key=lambda d: d.confidence, reverse=True):
+        if any(iou(det.bbox, k.bbox) > iou_threshold for k in kept):
+            continue
+        kept.append(det)
+    return kept
+
+
 def create_detector(config: DetectorConfig) -> BaseDetector:
     """Factory: create the appropriate detector based on configuration."""
     if config.accelerator == "coral":
@@ -344,6 +383,12 @@ def create_detector(config: DetectorConfig) -> BaseDetector:
     elif config.model_type == "rtdetr":
         from .rtdetr_detector import RTDETRDetector
         return RTDETRDetector(config)
+    elif config.model_type in ("yoloe", "yolo_seg", "ultralytics"):
+        from .seg_detector import UltralyticsSegDetector
+        return UltralyticsSegDetector(config)
+    elif config.model_type == "onnx_seg":
+        from .seg_detector import ONNXSegDetector
+        return ONNXSegDetector(config)
     else:
         raise ValueError(f"Unknown detector type: {config.model_type}")
 
@@ -353,6 +398,7 @@ __all__ = [
     "Detection",
     "YOLOONNXDetector",
     "create_detector",
+    "dedupe_detections",
     "AD_CLASS_IDS",
     "COCO_CLASSES",
 ]

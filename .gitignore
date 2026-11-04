@@ -110,3 +110,9 @@ desktop.ini
 *.wav
 *.flac
 *.psd
+
+# Auto-labelled datasets and training runs (regenerate locally)
+data/dataset_ads/
+runs/
+
+mobileclip_blt.ts

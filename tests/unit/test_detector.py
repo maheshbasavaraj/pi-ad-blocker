@@ -9,6 +9,7 @@ from pi_ad_blocker.config import DetectorConfig
 from pi_ad_blocker.modules.detector import (
     Detection,
     AD_CLASS_IDS,
+    dedupe_detections,
 )
 
 # Local IoU helper (not exported from module)
@@ -82,10 +83,28 @@ class TestDetectionUtils:
         assert abs(iou - 1.0) < 0.01
 
     def test_ad_class_ids(self):
-        assert 79 in AD_CLASS_IDS
-        assert AD_CLASS_IDS[79] == "billboard"
-        assert 83 in AD_CLASS_IDS
-        assert 84 in AD_CLASS_IDS
+        # COCO's only ad-like class is 62 (tv/monitor). Real ad coverage comes
+        # from the open-vocabulary / fine-tuned seg models, not COCO ids.
+        assert 62 in AD_CLASS_IDS
+        assert AD_CLASS_IDS[62] == "tv_monitor"
+
+    def test_dedupe_drops_cross_class_duplicate(self):
+        dets = [
+            Detection(0, "billboard", 0.30, (10, 10, 110, 110)),
+            Detection(1, "advertisement poster", 0.28, (12, 12, 112, 112)),
+            Detection(2, "store sign", 0.20, (400, 300, 500, 380)),
+        ]
+        kept = dedupe_detections(dets, iou_threshold=0.6)
+        assert len(kept) == 2
+        assert kept[0].class_name == "billboard"  # highest confidence wins
+        assert [d.class_name for d in kept][1] == "store sign"
+
+    def test_dedupe_keeps_distinct_boxes(self):
+        dets = [
+            Detection(0, "billboard", 0.30, (0, 0, 50, 50)),
+            Detection(0, "billboard", 0.25, (200, 200, 260, 260)),
+        ]
+        assert len(dedupe_detections(dets)) == 2
 
 
 class TestDetectorFactory:
