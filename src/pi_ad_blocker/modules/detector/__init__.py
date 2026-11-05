@@ -126,6 +126,28 @@ class BaseDetector(ABC):
     def class_names(self, names: list[str]) -> None:
         self._class_names = names
 
+    # Model types that ship as COCO-80 detectors. Fine-tuned ad models
+    # (``yolo_seg`` / ``onnx_seg`` / ``yoloe``) are single-class and must not
+    # be filtered by COCO ids.
+    _COCO_MODEL_TYPES = frozenset(
+        {"yolov8", "yolo11", "yolov11", "mobilenet_ssd", "rtdetr"}
+    )
+
+    def _is_coco_detector(self) -> bool:
+        """Whether the COCO ad-class filter is meaningful for this model.
+
+        A fine-tuned ad model reports class 0 (``ad``/``item``), which never
+        intersects ``AD_CLASS_IDS`` (COCO 62 = tv). Applying the filter to it
+        silently dropped every detection: the ONNX edge path returned 0 boxes
+        on a frame where the same weights detect 5 ads.
+        """
+        names = self._class_names or []
+        if len(names) >= 20:
+            return True
+        if len(names) <= 1:
+            return False
+        return self.config.model_type in self._COCO_MODEL_TYPES
+
     @abstractmethod
     def load_model(self) -> None:
         """Load the detection model into memory."""
@@ -157,8 +179,11 @@ class BaseDetector(ABC):
         elapsed = time.perf_counter() - t0
         self._inference_times.append(elapsed)
 
-        # Filter to ad-relevant classes only (disabled for prompt/trained seg models)
-        if self.config.filter_to_ad_classes:
+        # Filter to ad-relevant COCO classes only for COCO-style detectors.
+        # A fine-tuned single-class ad model reports class 0 ("ad"/"item"),
+        # which is not in AD_CLASS_IDS — filtering it dropped every detection
+        # (the ONNX edge path returned 0 boxes on footage it detects 5 ads in).
+        if self.config.filter_to_ad_classes and self._is_coco_detector():
             ad_ids = set(self.config.ad_class_ids)
             detections = [d for d in detections if d.class_id in ad_ids]
 

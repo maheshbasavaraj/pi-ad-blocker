@@ -267,6 +267,65 @@ a keyframe and removes propagation from the critical path.
 
 ---
 
+### AD-14: uint8 Composite Instead of float32 Alpha Blending
+
+**Status:** Adopted
+**Date:** 2026-11-05
+
+**Decision:** Composite masks with `cv2.multiply` / `cv2.subtract` in uint8
+saturating arithmetic rather than `effect.float * a + base.float * (1-a)` +
+`np.clip`.
+
+**Rationale:** The float path allocated three ROI-sized float32 temporaries and
+a fourth for the clip: measured 10.87 ms for a 280×320 ROI, and 7.35 ms for the
+whole `PolygonMasker.apply` with a single 8.4%-area detection. The uint8 path is
+1.68 ms / 3.31 ms — 6.5× faster on the composite, 2.3× on the masker — with a
+maximum per-pixel delta of 1 LSB on feathered edges and no change in mask IoU
+(0.915 mean / 0.805 p10 over 150 frames). It fits the 3–6 ms composite budget in
+the glasses plan for the first time.
+
+**Also:** replaced the full-frame `mask.any()` guard (0.33 ms) with the existing
+drawn/held booleans.
+
+---
+
+### AD-15: COCO Ad-Class Filter Applies Only to COCO Detectors
+
+**Status:** Adopted
+**Date:** 2026-11-05
+
+**Decision:** `BaseDetector.detect` applies `filter_to_ad_classes` only when the
+loaded model looks like a COCO detector (`_is_coco_detector`: ≥20 class names, or
+a COCO model type). Single-class domain models bypass it.
+
+**Rationale:** A fine-tuned ad model reports class 0 (`ad`/`item`), which never
+intersects `AD_CLASS_IDS` (COCO 62 = tv). With the config default
+`filter_to_ad_classes: True`, the ONNX edge path returned **0 detections** on a
+frame where the same weights detect 5 ads — the shipped RPi deployment masked
+nothing. The `.pt` detector hid the bug because it overrides `detect()` and
+skipped the filter entirely. Regression-covered by `TestAdClassFilter`.
+
+---
+
+### AD-16: Static INT8 Is Not the x86 Path
+
+**Status:** Adopted
+**Date:** 2026-11-05
+
+**Decision:** Keep FP32 ONNX (and `.pt`) as the default runtime; ship
+`scripts/quantize_static.py` for NPU/ARM targets only.
+
+**Rationale:** Static QDQ with 120 calibration frames: the whole-graph INT8
+model is 1.57× faster (32.8 vs 50.1 ms) but returns **zero detections** — the
+Ultralytics head mixes box, sigmoid-score and mask-coefficient ranges in one
+tensor and a single activation scale collapses every score to 0.0. Keeping the
+head in FP32 restores detections (box IoU 0.801) but lands at 0.93× FP32
+throughput; QOperator is 0.89×. On this x86 CPU (`avx_vnni`, 32 threads) INT8
+buys nothing, matching the earlier dynamic-quant finding (225 ms vs 33 ms). Re-test
+only on the reference device.
+
+---
+
 ## Accelerator Benchmarks (RPi 5, 640×480)
 
 | Accelerator | Model | FPS | Latency | Power | Cost |

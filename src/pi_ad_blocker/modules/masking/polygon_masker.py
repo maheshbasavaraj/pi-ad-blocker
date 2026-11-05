@@ -46,6 +46,33 @@ def _resample_contour(poly: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
+def _blend_u8(
+    effect: np.ndarray,
+    base: np.ndarray | None,
+    alpha: np.ndarray,
+    opacity: float,
+) -> np.ndarray:
+    """Alpha-composite ``effect`` over ``base`` using uint8 cv2 arithmetic.
+
+    The float32 version (`effect*a + base*(1-a)`, clipped) measured 10.9 ms for
+    a 280x320 ROI — it allocates three float64/float32 temporaries the size of
+    the ROI and then a fourth for the clip. cv2.multiply with a /255 scale does
+    the same maths in-place in uint8 saturating arithmetic at 1.4 ms, and the
+    only visible difference is ±1 LSB rounding on feathered edges.
+    """
+    opacity = max(0.0, min(float(opacity), 1.0))
+    if opacity <= 0.0:
+        return effect if base is None else base.copy()
+    if opacity < 1.0:
+        alpha = cv2.convertScaleAbs(alpha, alpha=opacity)
+    a3 = cv2.merge([alpha, alpha, alpha])
+    blended = cv2.multiply(effect, a3, scale=1.0 / 255.0)
+    if base is not None:
+        inv = cv2.subtract(255, a3)
+        blended = cv2.add(blended, cv2.multiply(base, inv, scale=1.0 / 255.0))
+    return blended
+
+
 class PolygonMasker(BaseMasker):
     """Mask the exact segmented outline of each ad, smoothed over time."""
 
@@ -88,8 +115,8 @@ class PolygonMasker(BaseMasker):
         # for ``hold_frames``, fading out. Without this every empty detection
         # blinked the mask fully off (mask IoU p10 measured 0.048).
         hold = max(int(self.config.hold_frames), 0)
+        held: np.ndarray | None = None
         if hold:
-            held = np.zeros_like(mask)
             for tid, st in list(self._state.items()):
                 if tid in live_ids or st.get("abs") is None:
                     continue
@@ -100,8 +127,10 @@ class PolygonMasker(BaseMasker):
                     else:
                         val = 255
                     if val > 4:
+                        if held is None:
+                            held = np.zeros_like(mask)
                         cv2.fillPoly(held, [st["abs"].astype(np.int32)], val)
-            if held.any():
+            if held is not None:
                 mask = np.maximum(mask, held)
 
         for tid, st in list(self._state.items()):
@@ -109,7 +138,9 @@ class PolygonMasker(BaseMasker):
             if tid not in live_ids and age > hold:
                 self._state.pop(tid, None)
 
-        if not mask.any():
+        # Scanning the full-frame mask cost 0.33 ms/frame; the flags already
+        # know whether anything was drawn.
+        if not got_any and held is None:
             return self._empty_output(frame)
         got_any = True
 
@@ -128,12 +159,6 @@ class PolygonMasker(BaseMasker):
         x1, y1 = min(bx + bw + pad, w), min(by + bh + pad, h)
 
         roi = frame[y0:y1, x0:x1]
-        alpha = (
-            mask[y0:y1, x0:x1].astype(np.float32) / 255.0
-            * float(self.config.mask_opacity)
-        )[..., None]
-        effect = self._effect(roi)
-
         if self.config.output_mode == "overlay":
             out = np.zeros_like(frame)
             base = None
@@ -141,10 +166,10 @@ class PolygonMasker(BaseMasker):
             out = frame.copy()
             base = roi
 
-        blended = effect.astype(np.float32) * alpha
-        if base is not None:
-            blended += base.astype(np.float32) * (1.0 - alpha)
-        out[y0:y1, x0:x1] = np.clip(blended, 0, 255).astype(np.uint8)
+        effect = self._effect(roi)
+        out[y0:y1, x0:x1] = _blend_u8(
+            effect, base, mask[y0:y1, x0:x1], float(self.config.mask_opacity)
+        )
         return out
 
     # -- internals ------------------------------------------------------

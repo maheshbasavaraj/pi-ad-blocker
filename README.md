@@ -121,6 +121,11 @@ python scripts/render_masked.py --video in.mp4 --frames 150 \
 python scripts/mask_quality.py --source in.mp4 --masked data/outputs/masked.mp4
 ```
 
+Mask compositing runs at 2.5–3.3 ms/frame (uint8 `cv2.multiply` blend inside the
+union ROI, down from 5.0–7.4 ms with float32). Static INT8 export lives in
+`scripts/quantize_static.py` but is **not** a speed win on x86 — it targets
+NPU/ARM devices; see `docs/realtime_mask_quality.md` for the measured table.
+
 ### Train a domain-specific ad segmenter (teacher → student)
 
 Open-vocabulary YOLOE labels the footage, a nano model learns it and ships:

@@ -83,8 +83,61 @@ Two honest caveats:
   before the next speed pass.
 - Recall rose 65 → 107 masked frames at 640. That could be true recall or false
   positives; `class_census.py` shows 2527 ad detections over 650 sampled frames
-  (3.9/frame), ad-only class, but nothing visual confirmed it — `vision_analyze`
-  is still 401 in this session, so treat recall as **unverified by eye**.
+  (3.9/frame), ad-only class. Eye check (2026-11-05, frame 90 of the same clip):
+  the four highest-confidence boxes sit on the SAU/H&M sign, a left-side
+  billboard, the "Nonstop to LaGuardia" screen and an American Eagle screen —
+  all true positives — with **one false positive on a street sign / traffic
+  light**. So the class census holds, the mask coverage is real, and the
+  residual error is small-object confusion, not wholesale over-masking.
+
+
+## Iteration: uint8 composite + static-INT8 verdict (2026-11-05)
+
+Measured on the same 150 frames / 854×480, nano seg, conf 0.25. Detector fps is
+quoted only from the writer-free benchmark; it swings 5–18 fps on a loaded
+32-thread laptop, so the masker numbers below are isolated micro-benchmarks on
+identical inputs.
+
+### Masker composite: float32 → uint8 cv2 arithmetic
+
+| path | before | after | note |
+|---|---|---|---|
+| ROI alpha blend (280×320) | 10.87 ms | **1.68 ms** | 6.5×, max pixel delta 1 LSB |
+| `PolygonMasker.apply`, 1 det / 8.4% area, no feather | 6.54 ms | **2.75 ms** | |
+| …feathered (`edge_feather_px=2`) | 7.35 ms | **3.31 ms** | shipping config |
+| …overlay mode (AR compositor) | 5.00 ms | **2.49 ms** | |
+
+Also dropped a full-frame `mask.any()` scan (0.33 ms) — the drawn/held flags
+already know whether anything was painted.
+
+Quality is unchanged by the rewrite (same 150 frames, 480p):
+
+```
+active 121/150 (80.7%), area mean 13.03%, IoU mean 0.915, p10 0.805
+```
+
+### Static INT8 (QDQ) with calibration — still a dead end on x86
+
+`scripts/quantize_static.py` replaces the dynamic-quant path: 120 calibration
+frames from `data/dataset_ads/images/train`, `QuantFormat.QDQ`, per-channel
+QUInt8 activations / QInt8 weights.
+
+| variant | size | ms/frame | detections | box IoU mean | verdict |
+|---|---|---|---|---|---|
+| FP32 ONNX | 11.6 MB | 50.1 | 7/40 frames | — | baseline |
+| INT8 QDQ, whole graph | 3.50 MB | 32.8 | **0** | — | broken: head collapses |
+| INT8 QDQ, head in FP32 | 5.40 MB | 54.0 | 6 | 0.801 | correct but 0.93× |
+| INT8 QOperator, head in FP32 | — | 115.9 | 5 | 0.677 | 0.89× |
+
+Two findings worth keeping:
+
+1. **Quantizing the Ultralytics head destroys the class scores.** Boxes, class
+   sigmoids (0–1) and 32 mask coefficients share the head tensors; one
+   per-tensor activation scale collapses every score to exactly `0.0`. The
+   head must stay FP32 (`--keep-head-fp32`, the default).
+2. **On x86 static INT8 is not a speedup here** even with `avx_vnni`. The win
+   only exists on an NPU/ARM target, so INT8 stays non-default until measured
+   on the reference device (roadmap item 5).
 
 ## Verification commands
 

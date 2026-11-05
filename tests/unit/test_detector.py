@@ -9,6 +9,7 @@ from pi_ad_blocker.config import DetectorConfig
 from pi_ad_blocker.modules.detector import (
     Detection,
     AD_CLASS_IDS,
+    BaseDetector,
     dedupe_detections,
 )
 
@@ -114,3 +115,56 @@ class TestDetectorFactory:
         detector = create_detector(config)
         with pytest.raises(FileNotFoundError):
             detector.load_model()
+
+
+class _StubDetector(BaseDetector):
+    """Detector with a canned class list and canned detections."""
+
+    def __init__(self, config, class_names, detections):
+        super().__init__(config)
+        self._class_names = class_names
+        self._canned = detections
+
+    def load_model(self):
+        self._warm = True
+
+    def preprocess(self, image):
+        return image
+
+    def infer(self, tensor):
+        return tensor
+
+    def postprocess(self, raw_output, image_shape):
+        return list(self._canned)
+
+
+class TestAdClassFilter:
+    """The COCO ad-class filter must not eat domain-model detections."""
+
+    def test_domain_model_keeps_class_zero(self):
+        det = Detection(0, "item", 0.9, (10, 10, 60, 60))
+        cfg = DetectorConfig(model_type="onnx_seg", filter_to_ad_classes=True,
+                             confidence_threshold=0.25)
+        dets = _StubDetector(cfg, ["item"], [det]).detect(np.zeros((64, 64, 3), np.uint8))
+        assert len(dets) == 1, "single-class ad model must survive the COCO filter"
+
+    def test_coco_model_still_filters(self):
+        from pi_ad_blocker.modules.detector import COCO_CLASSES
+
+        ad = Detection(62, "tv", 0.9, (10, 10, 60, 60))
+        person = Detection(0, "person", 0.9, (100, 10, 160, 60))
+        cfg = DetectorConfig(model_type="yolo11", filter_to_ad_classes=True,
+                             confidence_threshold=0.25)
+        dets = _StubDetector(cfg, list(COCO_CLASSES), [ad, person]).detect(
+            np.zeros((64, 200, 3), np.uint8)
+        )
+        assert [d.class_id for d in dets] == [62]
+
+    def test_filter_can_be_disabled(self):
+        det = Detection(62, "tv", 0.9, (10, 10, 60, 60))
+        cfg = DetectorConfig(model_type="yolo11", filter_to_ad_classes=False,
+                             confidence_threshold=0.25)
+        dets = _StubDetector(cfg, ["person", "tv"], [det]).detect(
+            np.zeros((64, 64, 3), np.uint8)
+        )
+        assert len(dets) == 1
