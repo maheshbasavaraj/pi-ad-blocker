@@ -236,10 +236,14 @@ python scripts/benchmark.py --video test_video.mp4
 
 ## Optimization Tips
 
-1. **Use INT8 model**: 2-3x faster than FP32 with <1% accuracy loss
+1. ~~**Use INT8 model**: 2-3x faster~~ — **unproven.** Static QDQ INT8 measured
+   *slower* than FP32 (0.93×) on x86 and the whole-graph export returns zero
+   detections; benchmark `scripts/quantize_static.py` output on the Pi before
+   shipping an INT8 claim (`docs/realtime_mask_quality.md`).
 2. **Reduce resolution**: 480p (640×480) is optimal for RPi 5
 3. **Disable preview**: `enable_preview: false` saves 2-3 FPS
-4. **Skip tracking**: Set `tracker.type: "none"` for ~5% speedup
+4. **Skip tracking**: Set `tracker.type: "none"` for ~5% speedup (pass-through
+   `NoTracker`; per-id mask smoothing is off in this mode)
 5. **Overclock**: RPi 5 can safely run at 2.8 GHz with adequate cooling
 6. **USB SSD boot**: Much faster model loading than microSD
 7. **Reduce confidence**: Lower from 0.35 to 0.25 for more detections (trade accuracy)

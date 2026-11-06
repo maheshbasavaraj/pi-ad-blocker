@@ -65,9 +65,9 @@ def main() -> None:
 
     # A single-class model has no real class names; ultralytics reports "item".
     # Treat the only class of a single-class model as the ad class.
-    model_names = getattr(getattr(det, "_model", None), "names", {}) or {}
+    model_names = getattr(det, "class_names", None) or []
     if len(model_names) == 1:
-        allowed = set(model_names.values())
+        allowed = {str(model_names[0])}
     else:
         allowed = set()
 

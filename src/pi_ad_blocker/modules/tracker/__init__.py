@@ -253,6 +253,33 @@ class ByteTrack(BaseTracker):
 # Factory
 # ---------------------------------------------------------------------------
 
+class NoTracker(BaseTracker):
+    """Pass-through tracker for ``tracker.type: "none"``.
+
+    The docs promised a ~5% speedup for skipping tracking, but the config
+    Literal rejected the value and the factory had no branch for it. This turns
+    each detection into a confirmed track so the pipeline's single code path
+    still works; ids are per-frame indices, which also switches off the
+    masker's per-id EMA (that is what "no tracking" means).
+    """
+
+    def update(self, detections: list[Detection]) -> list[Track]:
+        tracks = [
+            Track(
+                track_id=i,
+                class_id=det.class_id,
+                class_name=det.class_name,
+                bbox=det.bbox,
+                confidence=det.confidence,
+                is_confirmed=True,
+                polygon=det.polygon,
+            )
+            for i, det in enumerate(detections, start=1)
+        ]
+        self._tracks = {t.track_id: t for t in tracks}
+        return tracks
+
+
 def create_tracker(config: TrackerConfig) -> BaseTracker:
     """Create tracker by type."""
     if config.type == "bytetrack":
@@ -263,6 +290,8 @@ def create_tracker(config: TrackerConfig) -> BaseTracker:
     elif config.type == "botsort":
         from .botsort import BOTSort
         return BOTSort(config)
+    elif config.type == "none":
+        return NoTracker(config)
     else:
         raise ValueError(f"Unknown tracker: {config.type}")
 
@@ -270,6 +299,7 @@ def create_tracker(config: TrackerConfig) -> BaseTracker:
 __all__ = [
     "BaseTracker",
     "ByteTrack",
+    "NoTracker",
     "Track",
     "create_tracker",
 ]

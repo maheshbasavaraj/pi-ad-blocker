@@ -77,7 +77,7 @@ class DetectorConfig(BaseModel):
 class TrackerConfig(BaseModel):
     """Object tracker settings."""
 
-    type: Literal["bytetrack", "ocsort", "botsort"] = "bytetrack"
+    type: Literal["bytetrack", "ocsort", "botsort", "none"] = "bytetrack"
     track_high_thresh: float = 0.35
     track_low_thresh: float = 0.10
     new_track_thresh: float = 0.50

@@ -474,6 +474,15 @@ Output metrics: precision, recall, mAP50, FPS, latency (ms), CPU %, memory (MB)
 4. Run tests: `pytest tests/ -v`
 5. Submit a pull request
 
+### Gates that must stay green
+
+| gate | command | fails when |
+|---|---|---|
+| unit + pipeline | `pytest tests -q` | anything breaks the read → detect → track → mask → write path |
+| over-masking | `pytest tests/integration/test_class_census_gate.py -q` | census empty, a non-ad class is masked, or one frame is >45% masked |
+| mask flicker | `python scripts/mask_quality.py --source ... --masked ...` | consecutive-frame IoU p10 < 0.50 (ship bar 0.85) |
+| threshold | `python scripts/conf_sweep.py --imgsz 640` | precision/recall trade-off moves off the documented curve |
+
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.

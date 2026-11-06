@@ -326,6 +326,66 @@ only on the reference device.
 
 ---
 
+### AD-17: `tracker.type: "none"` Actually Works
+
+**Status:** Adopted
+**Date:** 2026-11-05
+
+**Decision:** Add `"none"` to `TrackerConfig.type` and a pass-through `NoTracker`
+in the tracker factory.
+
+**Rationale:** The deployment guide has told users to set
+`tracker.type: "none"` for a ~5% speedup since the first commit, but the
+Pydantic `Literal` rejected the value and `create_tracker` had no branch for it —
+the documented optimisation was impossible. `pipeline.py` already carried the
+`if tracker.type != "none"` path, so only the config gate and factory were
+missing. Covered by `test_tracker_none_disables_tracking`.
+
+---
+
+### AD-18: Confidence Threshold 0.25 Chosen by Sweep
+
+**Status:** Adopted
+**Date:** 2026-11-05
+
+**Decision:** Keep `confidence_threshold: 0.25` for the student model; document
+the curve in `scripts/conf_sweep.py`.
+
+**Rationale:** Measured on the 178-frame val split, 646 GT boxes, NMS IoU 0.5
+(Ultralytics' 0.7 leaves 18% self-overlapping duplicates at this threshold):
+
+| conf | precision | recall | F1 |
+|---|---|---|---|
+| 0.15 | 0.540 | 0.766 | 0.633 |
+| 0.20 | 0.574 | 0.729 | 0.642 |
+| **0.25** | **0.621** | **0.712** | **0.663** |
+| 0.30 | 0.663 | 0.692 | **0.677** (peak) |
+| 0.45 | 0.723 | 0.577 | 0.642 |
+
+0.30 peaks by 2.1% F1 with 5% less recall; 0.25 sits inside the noise band and
+keeps more ads masked, which is the correct trade for a blocker (a false
+positive blacks a sign, a false negative shows the ad). Note the GT is
+teacher-derived, so "FP" includes real ads the teacher missed — precision is a
+lower bound.
+
+---
+
+### AD-19: Over-Masking Gate Runs in CI
+
+**Status:** Adopted
+**Date:** 2026-11-05
+
+**Decision:** `tests/integration/test_class_census_gate.py` scans real footage
+with the shipped student and fails the build when (a) the census is empty,
+(b) any non-ad class appears, or (c) a single frame has >45% of its pixels
+masked. Skips cleanly when weights are absent (they are gitignored artifacts).
+
+**Rationale:** The glasses plan's kill criteria render "masks pedestrians, cars
+or traffic lights" a failure regardless of FPS, but no gate enforced it.
+A silent zero-detection model (the AD-15 bug) also just looked fast.
+
+---
+
 ## Accelerator Benchmarks (RPi 5, 640×480)
 
 | Accelerator | Model | FPS | Latency | Power | Cost |
